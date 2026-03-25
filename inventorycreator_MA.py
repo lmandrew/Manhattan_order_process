@@ -124,25 +124,39 @@ def generate_lpn():
 # -------------------------------
 # LOCATION
 # -------------------------------
-def get_location_from_zone(zone, log):
+def get_locations_from_zone(zone, log):
     payload = {
         "Query": f"PickAllocationZoneId={zone}",
-        "Size": 50,
-        "Templates": {"LocationId": ""}
+        "Templates": {
+            "PickAllocationZoneId": "",
+            "LocationId": ""
+        }
     }
 
     response = make_request("POST", SEARCH_LOCATION_URL, json=payload)
     data = safe_json(response)
 
-    results = data.get("data", [])
+    results = data.get("data") or []
 
     if not results:
-        log(f"❌ No location found for zone: {zone}")
-        return None
+        log(f"❌ No locations found for zone: {zone}")
+        return []
 
-    loc = results[0].get("LocationId")
-    log(f"📍 Using Location: {loc}")
-    return loc
+    locations = []
+
+    for result in results:
+        location_id = result.get("LocationId")
+        pick_zone = result.get("PickAllocationZoneId")
+
+        if location_id:
+            locations.append((pick_zone, location_id))
+
+    if not locations:
+        log(f"❌ No valid LocationId values found for zone: {zone}")
+        return []
+
+    log(f"📍 Found {len(locations)} locations for Pick Zone: {zone}")
+    return locations
 
 # -------------------------------
 # CHECK BATCH EXISTS
@@ -250,41 +264,43 @@ def handle_batch_logic(line, log):
 # -------------------------------
 # SEARCH INVENTORY
 # -------------------------------
-def search_inventory(line, location_id, log=None):
+def search_inventory(line, locations, log=None):
     item = line.get("ItemId")
     qty = float(line.get("OrderedQuantity", 0))
     item_attr1 = normalize_optional_field(line.get("ItemAttribute1"))
     item_attr2 = normalize_optional_field(line.get("ItemAttribute2"))
-
-    query = f"ItemId={item} and LocationId={location_id}"
-
-    if item_attr1 is not None:
-        query += f" and InventoryAttribute1={item_attr1}"
-
-    if item_attr2 is not None:
-        query += f" and InventoryAttribute2={item_attr2}"
+    location_ids = [location_id for _, location_id in locations if location_id]
 
     if log:
-        log(f"🔎 Searching inventory for ItemId={item} at LocationId={location_id}")
+        log(f"🔎 Searching inventory for ItemId={item} across {len(location_ids)} location(s)")
         log(f"   ItemAttribute1={item_attr1 if item_attr1 is not None else 'N/A'}")
         log(f"   ItemAttribute2={item_attr2 if item_attr2 is not None else 'N/A'}")
 
-    response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query, "Size": 100})
-    data = safe_json(response)
-    inventory_rows = data.get("data") or []
+    for location_id in location_ids:
+        query = f"ItemId={item} and LocationId={location_id}"
 
-    for inv in inventory_rows:
-        inv_attr1 = normalize_optional_field(inv.get("InventoryAttribute1"))
-        inv_attr2 = normalize_optional_field(inv.get("InventoryAttribute2"))
+        if item_attr1 is not None:
+            query += f" and InventoryAttribute1={item_attr1}"
 
-        if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
-            continue
+        if item_attr2 is not None:
+            query += f" and InventoryAttribute2={item_attr2}"
 
-        if item_attr2 is not None and str(inv_attr2) != str(item_attr2):
-            continue
+        response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query})
+        data = safe_json(response)
+        inventory_rows = data.get("data") or []
 
-        if float(inv.get("OnHand", 0)) >= qty:
-            return inv
+        for inv in inventory_rows:
+            inv_attr1 = normalize_optional_field(inv.get("InventoryAttribute1"))
+            inv_attr2 = normalize_optional_field(inv.get("InventoryAttribute2"))
+
+            if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
+                continue
+
+            if item_attr2 is not None and str(inv_attr2) != str(item_attr2):
+                continue
+
+            if float(inv.get("OnHand", 0)) >= qty:
+                return inv
 
     return None
 
@@ -402,12 +418,15 @@ def process_order(input_data, log, zone_map):
             log(f"❌ Missing Pick Zone for Order Line: {line_id}")
             continue
 
-        log(f"\n📍 Resolving location for Order Line {line_id} using Pick Zone: {zone}")
-        location_id = get_location_from_zone(zone, log)
+        log(f"\n📍 Resolving locations for Order Line {line_id} using Pick Zone: {zone}")
+        locations = get_locations_from_zone(zone, log)
 
-        if not location_id:
-            log(f"❌ Skipping Order Line {line_id} because no location was found")
+        if not locations:
+            log(f"❌ Skipping Order Line {line_id} because no locations were found")
             continue
+
+        location_id = locations[0][1]
+        log(f"📍 Using LocationId for create flow: {location_id}")
 
         log(f"\n===== Processing {line.get('ItemId')} =====")
 
@@ -431,7 +450,7 @@ def process_order(input_data, log, zone_map):
             # -------------------------------
             # EXISTING FLOW (UNCHANGED)
             # -------------------------------
-            inventory = search_inventory(line, location_id, log)
+            inventory = search_inventory(line, locations, log)
 
             if inventory:
                 log("\n✅ INVENTORY FOUND DETAILS")
