@@ -197,7 +197,6 @@ def get_pick_zone(location_id):
 # -------------------------------
 def handle_batch_logic(line, log):
 
-
     item_id = line.get("ItemId")
     batch = line.get("BatchNumber")
 
@@ -206,7 +205,7 @@ def handle_batch_logic(line, log):
 
     if not data:
         log("❌ Invalid item")
-        return "STOP", False
+        return "STOP", False, False
 
     track_batch = data.get("TrackBatchNumber")
 
@@ -215,6 +214,8 @@ def handle_batch_logic(line, log):
 
     log(f"📦 Item {item_id} → Batch Tracked: {'YES' if track_batch else 'NO'}")
 
+    auto_generated = False
+
     # -------------------------------
     # CASE 1: Batch tracked
     # -------------------------------
@@ -222,9 +223,10 @@ def handle_batch_logic(line, log):
         if not batch:
             batch = generate_batch()
             line["BatchNumber"] = batch
+            auto_generated = True
             log(f"⚠️ Generated Batch: {batch}")
 
-        # create batch master if not exists
+        # create batch master
         if not check_batch_exists(batch):
             create_batch_master(item_id, batch, log)
 
@@ -236,7 +238,7 @@ def handle_batch_logic(line, log):
             log("⚠️ Removing batch (not batch tracked)")
             line.pop("BatchNumber", None)
 
-    return None, track_batch
+    return None, track_batch, auto_generated
 
 # -------------------------------
 # SEARCH INVENTORY
@@ -326,39 +328,55 @@ def process_order(input_data, log, zone):
 
         log(f"\n===== Processing {line.get('ItemId')} =====")
 
-        stop, track_batch = handle_batch_logic(line, log)
+        # -------------------------------
+        # BATCH HANDLING
+        # -------------------------------
+        stop, track_batch, auto_generated = handle_batch_logic(line, log)
 
         if stop == "STOP":
             continue
 
-        inv = search_inventory(line, location_id)
+        # -------------------------------
+        # 🔥 NEW LOGIC (DO NOT TOUCH REST)
+        # -------------------------------
+        if track_batch and auto_generated:
+            log("🚀 New batch generated → Skipping inventory search")
 
-        if inv:
-            log("\n✅ INVENTORY FOUND DETAILS")
-            log("-" * 40)
-
-            lpn = inv.get("InventoryContainerId")
-            location = inv.get("LocationId")
-            qty = inv.get("OnHand")
-            batch = inv.get("BatchNumber")
-
-            # 🔥 Get Pick Zone
-            pick_zone = get_pick_zone(location)
-
-            log(f"ItemId        : {line.get('ItemId')}")
-            log(f"LPN ID        : {lpn}")
-            log(f"LocationId    : {location}")
-            log(f"PickZone      : {pick_zone}")
-            log(f"OnHand Qty    : {qty}")
-
-            if batch:
-                log(f"BatchNumber   : {batch}")
-            else:
-                log("BatchNumber   : N/A")
-
-            log("-" * 40)
-        else:
             create_inventory(line, location_id, track_batch, log)
+
+        else:
+            # -------------------------------
+            # EXISTING FLOW (UNCHANGED)
+            # -------------------------------
+            inventory = search_inventory(line, location_id, log)
+
+            if inventory:
+                log("\n✅ INVENTORY FOUND DETAILS")
+                log("-" * 40)
+
+                lpn = inventory.get("InventoryContainerId")
+                location = inventory.get("LocationId")
+                qty = inventory.get("OnHand")
+                batch = inventory.get("BatchNumber")
+
+                pick_zone = get_pick_zone(location)
+
+                log(f"ItemId        : {line.get('ItemId')}")
+                log(f"LPN ID        : {lpn}")
+                log(f"LocationId    : {location}")
+                log(f"PickZone      : {pick_zone}")
+                log(f"OnHand Qty    : {qty}")
+                log(f"BatchNumber   : {batch if batch else 'N/A'}")
+
+                log("-" * 40)
+
+            else:
+                log("❌ Not found → Creating")
+                create_inventory(line, location_id, track_batch, log)
+
+        log("\n==============================")
 
     log("\n📦 FINAL STEP")
     post_do(do_json, log)
+
+    
