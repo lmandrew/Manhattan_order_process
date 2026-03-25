@@ -2,7 +2,7 @@ import requests
 import random
 import string
 
-# -------------------------------
+# ---------------------------------
 # CONFIG
 # -------------------------------
 APP_HOST = "https://abbls2.sce.manh.com"
