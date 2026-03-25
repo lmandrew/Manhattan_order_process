@@ -272,10 +272,22 @@ def post_do(do_json, log):
 # -------------------------------
 # MAIN PIPELINE
 # -------------------------------
-def process_order(raw_do_text, log, zone):
+def process_order(input_data, log, zone):
 
-    do_json = clean_json(raw_do_text)
+    # -------------------------------
+    # HANDLE BOTH STRING & DICT
+    # -------------------------------
+    if isinstance(input_data, str):
+        do_json = clean_json(input_data)
+    elif isinstance(input_data, dict):
+        do_json = input_data
+    else:
+        log("❌ Invalid input type")
+        return
 
+    # -------------------------------
+    # NORMAL FLOW
+    # -------------------------------
     location_id = get_location_from_zone(zone, log)
 
     if not location_id:
