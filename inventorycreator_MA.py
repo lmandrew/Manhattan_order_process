@@ -115,6 +115,13 @@ def normalize_optional_field(value):
         return None
     return value
 
+def get_inventory_location_id(inventory):
+    return (
+        normalize_optional_field(inventory.get("LocationId"))
+        or normalize_optional_field(inventory.get("CurrentLocationId"))
+        or normalize_optional_field(inventory.get("LastKnownLocationId"))
+    )
+
 def generate_batch():
     return f"BATCH{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
 
@@ -442,7 +449,7 @@ def process_order(input_data, log, zone_map):
                 inventory = None
 
                 for candidate in inventories:
-                    candidate_location = candidate.get("LocationId")
+                    candidate_location = get_inventory_location_id(candidate)
                     candidate_zone = get_pick_zone(candidate_location)
                     if candidate_zone == zone:
                         inventory = candidate
@@ -455,7 +462,7 @@ def process_order(input_data, log, zone_map):
                 log("-" * 40)
 
                 lpn = inventory.get("InventoryContainerId")
-                location = inventory.get("LocationId")
+                location = get_inventory_location_id(inventory)
                 qty = inventory.get("OnHand")
                 batch = inventory.get("BatchNumber")
                 item_attr1 = normalize_optional_field(inventory.get("InventoryAttribute1"))
