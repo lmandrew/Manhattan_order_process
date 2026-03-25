@@ -268,15 +268,22 @@ def create_batch_master(item_id, batch_number, log):
 # -------------------------------
 def post_do_to_system(do_json, log):
     log("\n🚀 Posting user-provided DO to system...")
-    log(f"Payload: {do_json}")
+    log(f"Payload: {json.dumps(do_json, indent=2)}")
     try:
         response = requests.post(f"{APP_HOST}/dcorder/api/dcorder/originalOrder/save", headers=HEADERS, json=do_json)
     except Exception as e:
         log(f"❌ DO Post error: {e}")
         return
+    
     log(f"Response Status: {response.status_code}")
-    log(f"Response Text: {response.text}")
-    if response.status_code in [200, 201,"OK"]:
+    try:
+        response_json = response.json()
+        log(f"Response JSON: {json.dumps(response_json, indent=2)}")
+    except Exception:
+        response_json = None
+
+    # Check success based on response content
+    if response_json and (response_json.get("success") == True or response_json.get("statusCode") == "OK"):
         log("✅ DO CREATED SUCCESSFULLY")
     else:
         log("❌ DO CREATION FAILED")
