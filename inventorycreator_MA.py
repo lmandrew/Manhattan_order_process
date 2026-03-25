@@ -246,16 +246,35 @@ def handle_batch_logic(line, log):
 def search_inventory(line, location_id, log=None):
     item = line.get("ItemId")
     qty = float(line.get("OrderedQuantity", 0))
+    item_attr1 = line.get("ItemAttribute1")
+    item_attr2 = line.get("ItemAttribute2")
 
     query = f"ItemId={item} and LocationId={location_id}"
 
+    if item_attr1 is not None:
+        query += f" and ItemAttribute1={item_attr1}"
+
+    if item_attr2 is not None:
+        query += f" and ItemAttribute2={item_attr2}"
+
     if log:
         log(f"🔎 Searching inventory for ItemId={item} at LocationId={location_id}")
+        log(f"   ItemAttribute1={item_attr1 if item_attr1 is not None else 'N/A'}")
+        log(f"   ItemAttribute2={item_attr2 if item_attr2 is not None else 'N/A'}")
 
     response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query, "Size": 100})
     data = safe_json(response)
 
     for inv in data.get("data", []):
+        inv_attr1 = inv.get("ItemAttribute1")
+        inv_attr2 = inv.get("ItemAttribute2")
+
+        if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
+            continue
+
+        if item_attr2 is not None and str(inv_attr2) != str(item_attr2):
+            continue
+
         if float(inv.get("OnHand", 0)) >= qty:
             return inv
 
@@ -268,6 +287,8 @@ def create_inventory(line, location_id, track_batch, log):
 
     lpn = generate_lpn()
     pick_zone = get_pick_zone(location_id)
+    item_attr1 = line.get("ItemAttribute1")
+    item_attr2 = line.get("ItemAttribute2")
 
     payload = {
         "IlpnId": lpn,
@@ -285,6 +306,12 @@ def create_inventory(line, location_id, track_batch, log):
     if track_batch:
         payload["Inventory"][0]["BatchNumber"] = line.get("BatchNumber")
 
+    if item_attr1 is not None:
+        payload["Inventory"][0]["ItemAttribute1"] = item_attr1
+
+    if item_attr2 is not None:
+        payload["Inventory"][0]["ItemAttribute2"] = item_attr2
+
     log("\n📤 CREATE INVENTORY REQUEST")
     log("-" * 40)
     log(f"ItemId        : {line.get('ItemId')}")
@@ -293,6 +320,8 @@ def create_inventory(line, location_id, track_batch, log):
     log(f"PickZone      : {pick_zone if pick_zone else 'N/A'}")
     log(f"OnHand Qty    : {line.get('OrderedQuantity')}")
     log(f"BatchNumber   : {line.get('BatchNumber') if track_batch else 'N/A'}")
+    log(f"ItemAttribute1: {item_attr1 if item_attr1 is not None else 'N/A'}")
+    log(f"ItemAttribute2: {item_attr2 if item_attr2 is not None else 'N/A'}")
     log("-" * 40)
 
     response = make_request("POST", CREATE_INVENTORY_URL, json=payload)
@@ -306,6 +335,8 @@ def create_inventory(line, location_id, track_batch, log):
         log(f"PickZone      : {pick_zone if pick_zone else 'N/A'}")
         log(f"OnHand Qty    : {line.get('OrderedQuantity')}")
         log(f"BatchNumber   : {line.get('BatchNumber') if track_batch else 'N/A'}")
+        log(f"ItemAttribute1: {item_attr1 if item_attr1 is not None else 'N/A'}")
+        log(f"ItemAttribute2: {item_attr2 if item_attr2 is not None else 'N/A'}")
         log(f"Status Code   : {response.status_code}")
         try:
             log(json.dumps(response.json(), indent=2))
@@ -322,6 +353,8 @@ def create_inventory(line, location_id, track_batch, log):
     log(f"PickZone      : {pick_zone if pick_zone else 'N/A'}")
     log(f"OnHand Qty    : {line.get('OrderedQuantity')}")
     log(f"BatchNumber   : {line.get('BatchNumber') if track_batch else 'N/A'}")
+    log(f"ItemAttribute1: {item_attr1 if item_attr1 is not None else 'N/A'}")
+    log(f"ItemAttribute2: {item_attr2 if item_attr2 is not None else 'N/A'}")
     log(f"Status Code   : {response.status_code}")
     try:
         body = response.json()
@@ -408,6 +441,8 @@ def process_order(input_data, log, zone):
                 location = inventory.get("LocationId")
                 qty = inventory.get("OnHand")
                 batch = inventory.get("BatchNumber")
+                item_attr1 = inventory.get("ItemAttribute1")
+                item_attr2 = inventory.get("ItemAttribute2")
 
                 pick_zone = get_pick_zone(location)
 
@@ -417,6 +452,8 @@ def process_order(input_data, log, zone):
                 log(f"PickZone      : {pick_zone}")
                 log(f"OnHand Qty    : {qty}")
                 log(f"BatchNumber   : {batch if batch else 'N/A'}")
+                log(f"ItemAttribute1: {item_attr1 if item_attr1 is not None else 'N/A'}")
+                log(f"ItemAttribute2: {item_attr2 if item_attr2 is not None else 'N/A'}")
 
                 log("-" * 40)
 
