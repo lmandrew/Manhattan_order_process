@@ -276,6 +276,7 @@ def create_inventory(line, location_id, track_batch, log):
         "CurrentLocationId": location_id,
         "Inventory": [{
             "InventoryContainerId": lpn,
+            "InventoryContainerTypeId": "ILPN",
             "ItemId": line.get("ItemId"),
             "OnHand": line.get("OrderedQuantity")
         }]
