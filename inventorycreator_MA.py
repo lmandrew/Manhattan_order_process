@@ -125,31 +125,43 @@ def generate_lpn():
 # LOCATION
 # -------------------------------
 def get_locations_from_zone(zone, log):
-    payload = {
-        "Query": f"PickAllocationZoneId={zone}",
-        "Templates": {
-            "PickAllocationZoneId": "",
-            "LocationId": ""
-        }
-    }
-
-    response = make_request("POST", SEARCH_LOCATION_URL, json=payload)
-    data = safe_json(response)
-
-    results = data.get("data") or []
-
-    if not results:
-        log(f"❌ No locations found for zone: {zone}")
-        return []
-
     locations = []
+    seen_location_ids = set()
+    page = 1
+    max_pages = 100
 
-    for result in results:
-        location_id = result.get("LocationId")
-        pick_zone = result.get("PickAllocationZoneId")
+    while page <= max_pages:
+        payload = {
+            "Query": f"PickAllocationZoneId={zone}",
+            "Page": page,
+            "Templates": {
+                "PickAllocationZoneId": "",
+                "LocationId": ""
+            }
+        }
 
-        if location_id:
-            locations.append((pick_zone, location_id))
+        response = make_request("POST", SEARCH_LOCATION_URL, json=payload)
+        data = safe_json(response)
+        results = data.get("data") or []
+
+        if not results:
+            break
+
+        new_results_on_page = 0
+
+        for result in results:
+            location_id = result.get("LocationId")
+            pick_zone = result.get("PickAllocationZoneId")
+
+            if location_id and location_id not in seen_location_ids:
+                seen_location_ids.add(location_id)
+                locations.append((pick_zone, location_id))
+                new_results_on_page += 1
+
+        if new_results_on_page == 0:
+            break
+
+        page += 1
 
     if not locations:
         log(f"❌ No valid LocationId values found for zone: {zone}")
