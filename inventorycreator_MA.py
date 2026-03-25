@@ -154,7 +154,11 @@ def create_batch_master(item_id, batch, log):
         "BatchNumberId": batch,
         "ItemId": item_id,
         "ReceivedDate": "2022-01-01",
-        "Status": 1000
+        "Status": 1000,
+        "ExpirationDate": "2035-12-31",
+        "CountryOfOrgin": "USA",
+        "Expired": False,
+        "ManufacturerRecall": False
     }
 
     response = make_request("POST", BATCH_MASTER_URL, json=payload)
