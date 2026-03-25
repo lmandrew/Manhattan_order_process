@@ -168,10 +168,35 @@ def create_batch_master(item_id, batch, log):
     else:
         log(f"❌ Batch Master Failed: {response.text}")
 
+#----
+
+def get_pick_zone(location_id):
+    payload = {
+        "Query": f"LocationId={location_id}",
+        "Size": 1,
+        "Templates": {
+            "PickAllocationZoneId": "",
+            "LocationId": ""
+        }
+    }
+
+    response = make_request("POST", SEARCH_LOCATION_URL, json=payload)
+    data = safe_json(response)
+
+    results = data.get("data", [])
+
+    if results:
+        return results[0].get("PickAllocationZoneId")
+
+    return None
+
+
+
 # -------------------------------
 # HANDLE BATCH LOGIC
 # -------------------------------
 def handle_batch_logic(line, log):
+
 
     item_id = line.get("ItemId")
     batch = line.get("BatchNumber")
@@ -309,7 +334,29 @@ def process_order(input_data, log, zone):
         inv = search_inventory(line, location_id)
 
         if inv:
-            log("✅ Inventory exists")
+            log("\n✅ INVENTORY FOUND DETAILS")
+            log("-" * 40)
+
+            lpn = inv.get("InventoryContainerId")
+            location = inv.get("LocationId")
+            qty = inv.get("OnHand")
+            batch = inv.get("BatchNumber")
+
+            # 🔥 Get Pick Zone
+            pick_zone = get_pick_zone(location)
+
+            log(f"ItemId        : {line.get('ItemId')}")
+            log(f"LPN ID        : {lpn}")
+            log(f"LocationId    : {location}")
+            log(f"PickZone      : {pick_zone}")
+            log(f"OnHand Qty    : {qty}")
+
+            if batch:
+                log(f"BatchNumber   : {batch}")
+            else:
+                log("BatchNumber   : N/A")
+
+            log("-" * 40)
         else:
             create_inventory(line, location_id, track_batch, log)
 
