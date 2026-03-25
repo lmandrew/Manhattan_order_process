@@ -149,7 +149,7 @@ def validate_item_batch(line, log):
         new_batch = f"BATCH{generate_id(6)}"
         log(f"⚠️ Auto batch: {new_batch}")
         line["BatchNumber"] = new_batch
-    return None
+    return track_batch  # Return the batch tracking status
 
 # -------------------------------
 # SEARCH INVENTORY
@@ -182,9 +182,13 @@ def search_inventory(line, location_id, log):
 # -------------------------------
 # CREATE INVENTORY
 # -------------------------------
-def create_inventory(line, location_id, log):
+def create_inventory(line, location_id, log, item_is_batch_tracked):
+    if not item_is_batch_tracked:
+        log("⚠️ Item is NOT batch tracked. Creating inventory without batch number.")
+    else:
+        log("✅ Item is batch tracked.")
     lpn = generate_id()
-    payload = {
+    inventory_payload = {
         "IlpnId": lpn,
         "IlpnTypeId": "ILPN",
         "Status": "3000",
@@ -195,12 +199,14 @@ def create_inventory(line, location_id, log):
             "InventoryContainerTypeId": "ILPN",
             "ItemId": line.get("ItemId"),
             "OnHand": line.get("OrderedQuantity"),
-            "InventoryAttribute1": line.get("ItemAttribute1"),
-            "BatchNumber": line.get("BatchNumber")
+            "InventoryAttribute1": line.get("ItemAttribute1")
         }]
     }
+    # Include BatchNumber only if item is batch tracked
+    if item_is_batch_tracked:
+        inventory_payload["Inventory"][0]["BatchNumber"] = line.get("BatchNumber")
     try:
-        response = requests.post(CREATE_INVENTORY_URL, headers=HEADERS, json=payload)
+        response = requests.post(CREATE_INVENTORY_URL, headers=HEADERS, json=inventory_payload)
     except Exception as e:
         log(f"❌ Create Inventory error: {e}")
         return
@@ -209,7 +215,10 @@ def create_inventory(line, location_id, log):
     log(f"ILPN : {lpn}")
     log(f"Location : {location_id}")
     log(f"Qty : {line.get('OrderedQuantity')}")
-    log(f"Batch : {line.get('BatchNumber')}")
+    if item_is_batch_tracked:
+        log(f"Batch : {line.get('BatchNumber')}")
+    else:
+        log("Batch: N/A (Item not batch tracked)")
     log(f"Status : {response.status_code}")
 
 # -------------------------------
@@ -302,7 +311,7 @@ def process_order(do_json, log, access_token, zone):
             # Generate a new batch number
             batch_number = f"BATCH{generate_id(6)}"
             line["BatchNumber"] = batch_number
-            # Only create batch if TrackBatchNumber is True
+            # Only create batch if item is batch tracked
             if isinstance(track_batch, bool) and track_batch:
                 exists = check_batch_exists(batch_number, log)
                 if not exists:
@@ -315,10 +324,13 @@ def process_order(do_json, log, access_token, zone):
             log(f"LPN : {inventory.get('InventoryContainerId')}")
             log(f"Location : {inventory.get('LocationId')}")
             log(f"Qty : {inventory.get('OnHand')}")
-            log(f"Batch : {inventory.get('BatchNumber')}")
+            if isinstance(track_batch, bool) and track_batch:
+                log(f"Batch : {inventory.get('BatchNumber')}")
+            else:
+                log("Batch: N/A (Item not batch tracked)")
         else:
             log("❌ Not found → Creating")
-            create_inventory(line, location_id, log)
+            create_inventory(line, location_id, log, track_batch)
         log("\n==============================")
     log("📦 FINAL STEP: Posting DO")
     log("==============================")
