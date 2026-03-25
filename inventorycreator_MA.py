@@ -12,7 +12,8 @@ CREATE_INVENTORY_URL = f"{APP_HOST}/dcinventory/api/dcinventory/ilpn/createIlpnA
 ITEM_API_URL = f"{APP_HOST}/item-master/api/item-master/item/itemId"
 ITEM_FACILITY_URL = f"{APP_HOST}/item-master/api/item-master/itemFacility/itemId"
 DC_ORDER_URL = f"{APP_HOST}/dcorder/api/dcorder/originalOrder/save"
-BATCH_MASTER_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster"  # New batch API
+BATCH_MASTER_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster"
+BATCH_SEARCH_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster/search"  # New batch search API
 
 LOC = "EDC-DEV"
 ORG = "EDC-DEV"
@@ -199,12 +200,27 @@ def create_inventory(line, location_id, log):
     log(f"Status : {response.status_code}")
 
 # -------------------------------
+# CHECK IF BATCH EXISTS
+# -------------------------------
+def check_batch_exists(batch_number, log):
+    query = {
+        "Query": f"BatchNumberId={batch_number}"
+    }
+    try:
+        response = requests.post(BATCH_SEARCH_URL, headers=HEADERS, json=query)
+        data = safe_json(response)
+    except Exception as e:
+        log(f"❌ Batch search API error: {e}")
+        return False
+    results = data.get("data", [])
+    return len(results) > 0
+
+# -------------------------------
 # CREATE BATCH MASTER
 # -------------------------------
 def create_batch_master(item_id, batch_number, log):
     # Example received date, you might want to customize or pass as parameter
     received_date = "2022-05-20"
-    ExpirationDate = "2035-05-20"
     payload = {
         "BatchNumberId": batch_number,
         "ItemId": item_id,
@@ -213,20 +229,7 @@ def create_batch_master(item_id, batch_number, log):
         "Status": 1000,
         "Expired": False,
         "ManufacturerRecall": False,
-        "CountryOfOrigin": "US",
-        "ExpirationDate": ExpirationDate
-        
-        {
-            "BatchNumberId": "Andrew112",
-            "ItemId": "02F7702BN2",
-            "ReceivedDate": "2022-05-20",
-            "VendorBatch": "70187348",
-            "Status": 1000,
-            "Expired": false,
-            "ManufacturerRecall": false,
-            "CountryOfOrigin": "US",
-            "ExpirationDate": "2029-05-20"
-        }
+        "CountryOfOrigin": "US"
     }
     try:
         response = requests.post(BATCH_MASTER_URL, headers=HEADERS, json=payload)
@@ -270,14 +273,22 @@ def process_order(do_json, log, access_token, zone):
         get_packzone_from_item(line.get("ItemId"), log)
         if validate_item_batch(line, log) == "STOP":
             continue
-        # If BatchNumber is missing, generate and create batch
+        # Check if batch exists in system
         batch_number = line.get("BatchNumber")
-        if not batch_number:
+        if batch_number:
+            exists = check_batch_exists(batch_number, log)
+            if not exists:
+                # Create batch if it does not exist
+                create_batch_master(line.get("ItemId"), batch_number, log)
+        else:
             # Generate a new batch number
             batch_number = f"BATCH{generate_id(6)}"
             line["BatchNumber"] = batch_number
-            # Create batch master
-            create_batch_master(line.get("ItemId"), batch_number, log)
+            # Check if batch exists before creating
+            exists = check_batch_exists(batch_number, log)
+            if not exists:
+                create_batch_master(line.get("ItemId"), batch_number, log)
+
         # Search inventory
         inventory = search_inventory(line, location_id, log)
         if inventory:
