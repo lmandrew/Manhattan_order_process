@@ -124,51 +124,31 @@ def generate_lpn():
 # -------------------------------
 # LOCATION
 # -------------------------------
-def get_locations_from_zone(zone, log):
-    locations = []
-    seen_location_ids = set()
-    page = 1
-    max_pages = 100
-
-    while page <= max_pages:
-        payload = {
-            "Query": f"PickAllocationZoneId={zone}",
-            "Page": page,
-            "Templates": {
-                "PickAllocationZoneId": "",
-                "LocationId": ""
-            }
+def get_location_from_zone(zone, log):
+    payload = {
+        "Query": f"PickAllocationZoneId={zone}",
+        "Size": 1,
+        "Templates": {
+            "PickAllocationZoneId": "",
+            "LocationId": ""
         }
+    }
 
-        response = make_request("POST", SEARCH_LOCATION_URL, json=payload)
-        data = safe_json(response)
-        results = data.get("data") or []
+    response = make_request("POST", SEARCH_LOCATION_URL, json=payload)
+    data = safe_json(response)
+    results = data.get("data") or []
 
-        if not results:
-            break
+    if not results:
+        log(f"❌ No valid LocationId found for Pick Zone: {zone}")
+        return None
 
-        new_results_on_page = 0
+    location_id = results[0].get("LocationId")
 
-        for result in results:
-            location_id = result.get("LocationId")
-            pick_zone = result.get("PickAllocationZoneId")
+    if not location_id:
+        log(f"❌ No valid LocationId found for Pick Zone: {zone}")
+        return None
 
-            if location_id and location_id not in seen_location_ids:
-                seen_location_ids.add(location_id)
-                locations.append((pick_zone, location_id))
-                new_results_on_page += 1
-
-        if new_results_on_page == 0:
-            break
-
-        page += 1
-
-    if not locations:
-        log(f"❌ No valid LocationId values found for zone: {zone}")
-        return []
-
-    log(f"📍 Found {len(locations)} locations for Pick Zone: {zone}")
-    return locations
+    return location_id
 
 # -------------------------------
 # CHECK BATCH EXISTS
@@ -429,15 +409,12 @@ def process_order(input_data, log, zone_map):
             log(f"❌ Missing Pick Zone for Order Line: {line_id}")
             continue
 
-        log(f"\n📍 Resolving target locations for Order Line {line_id} using Pick Zone: {zone}")
-        locations = get_locations_from_zone(zone, log)
+        location_id = get_location_from_zone(zone, log)
 
-        if not locations:
-            log(f"❌ Skipping Order Line {line_id} because no locations were found")
+        if not location_id:
+            log(f"❌ Skipping Order Line {line_id} because no target location was found")
             continue
 
-        location_id = locations[0][1]
-        target_location_ids = {loc_id for _, loc_id in locations if loc_id}
         log(f"📍 Using LocationId for create flow: {location_id}")
 
         log(f"\n===== Processing {line.get('ItemId')} =====")
@@ -465,7 +442,9 @@ def process_order(input_data, log, zone_map):
                 inventory = None
 
                 for candidate in inventories:
-                    if candidate.get("LocationId") in target_location_ids:
+                    candidate_location = candidate.get("LocationId")
+                    candidate_zone = get_pick_zone(candidate_location)
+                    if candidate_zone == zone:
                         inventory = candidate
                         break
 
@@ -495,7 +474,7 @@ def process_order(input_data, log, zone_map):
 
                 log("-" * 40)
 
-                if location not in target_location_ids:
+                if pick_zone != zone:
                     log(f"⚠️ Inventory exists but not in target Pick Zone: {zone}")
                     log("🆕 Creating inventory in the user-selected Pick Zone")
                     create_inventory(line, location_id, track_batch, log)
