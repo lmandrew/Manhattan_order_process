@@ -264,39 +264,39 @@ def handle_batch_logic(line, log):
 # -------------------------------
 # SEARCH INVENTORY
 # -------------------------------
-def search_inventory(line, locations, log=None):
+def search_inventory(line, locations, track_batch, log=None):
     item = line.get("ItemId")
     qty = float(line.get("OrderedQuantity", 0))
+    batch_number = normalize_optional_field(line.get("BatchNumber")) if track_batch else None
     item_attr1 = normalize_optional_field(line.get("ItemAttribute1"))
-    item_attr2 = normalize_optional_field(line.get("ItemAttribute2"))
     location_ids = [location_id for _, location_id in locations if location_id]
 
     if log:
         log(f"🔎 Searching inventory for ItemId={item} across {len(location_ids)} location(s)")
+        log(f"   BatchNumber={batch_number if batch_number is not None else 'N/A'}")
         log(f"   ItemAttribute1={item_attr1 if item_attr1 is not None else 'N/A'}")
-        log(f"   ItemAttribute2={item_attr2 if item_attr2 is not None else 'N/A'}")
 
     for location_id in location_ids:
         query = f"ItemId={item} and LocationId={location_id}"
 
+        if batch_number is not None:
+            query += f" and BatchNumber={batch_number}"
+
         if item_attr1 is not None:
             query += f" and InventoryAttribute1={item_attr1}"
-
-        if item_attr2 is not None:
-            query += f" and InventoryAttribute2={item_attr2}"
 
         response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query})
         data = safe_json(response)
         inventory_rows = data.get("data") or []
 
         for inv in inventory_rows:
+            inv_batch = normalize_optional_field(inv.get("BatchNumber"))
             inv_attr1 = normalize_optional_field(inv.get("InventoryAttribute1"))
-            inv_attr2 = normalize_optional_field(inv.get("InventoryAttribute2"))
 
-            if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
+            if batch_number is not None and str(inv_batch) != str(batch_number):
                 continue
 
-            if item_attr2 is not None and str(inv_attr2) != str(item_attr2):
+            if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
                 continue
 
             if float(inv.get("OnHand", 0)) >= qty:
@@ -450,7 +450,7 @@ def process_order(input_data, log, zone_map):
             # -------------------------------
             # EXISTING FLOW (UNCHANGED)
             # -------------------------------
-            inventory = search_inventory(line, locations, log)
+            inventory = search_inventory(line, locations, track_batch, log)
 
             if inventory:
                 log("\n✅ INVENTORY FOUND DETAILS")
