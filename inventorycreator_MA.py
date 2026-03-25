@@ -276,7 +276,7 @@ def post_do_to_system(do_json, log):
         return
     log(f"Response Status: {response.status_code}")
     log(f"Response Text: {response.text}")
-    if response.status_code in [200, 201]:
+    if response.status_code in [200, 201,"OK"]:
         log("✅ DO CREATED SUCCESSFULLY")
     else:
         log("❌ DO CREATION FAILED")
