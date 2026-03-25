@@ -276,45 +276,44 @@ def handle_batch_logic(line, log):
 # -------------------------------
 # SEARCH INVENTORY
 # -------------------------------
-def search_inventory(line, locations, track_batch, log=None):
+def search_inventory(line, track_batch, log=None):
     item = line.get("ItemId")
     qty = float(line.get("OrderedQuantity", 0))
     batch_number = normalize_optional_field(line.get("BatchNumber")) if track_batch else None
     item_attr1 = normalize_optional_field(line.get("ItemAttribute1"))
-    location_ids = [location_id for _, location_id in locations if location_id]
+    query = f"ItemId={item}"
+
+    if batch_number is not None:
+        query += f" and BatchNumber={batch_number}"
+
+    if item_attr1 is not None:
+        query += f" and InventoryAttribute1={item_attr1}"
 
     if log:
-        log(f"🔎 Searching inventory for ItemId={item} across {len(location_ids)} location(s)")
+        log(f"🔎 Searching inventory for ItemId={item}")
         log(f"   BatchNumber={batch_number if batch_number is not None else 'N/A'}")
         log(f"   ItemAttribute1={item_attr1 if item_attr1 is not None else 'N/A'}")
 
-    for location_id in location_ids:
-        query = f"ItemId={item} and LocationId={location_id}"
+    response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query})
+    data = safe_json(response)
+    inventory_rows = data.get("data") or []
 
-        if batch_number is not None:
-            query += f" and BatchNumber={batch_number}"
+    matches = []
 
-        if item_attr1 is not None:
-            query += f" and InventoryAttribute1={item_attr1}"
+    for inv in inventory_rows:
+        inv_batch = normalize_optional_field(inv.get("BatchNumber"))
+        inv_attr1 = normalize_optional_field(inv.get("InventoryAttribute1"))
 
-        response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query})
-        data = safe_json(response)
-        inventory_rows = data.get("data") or []
+        if batch_number is not None and str(inv_batch) != str(batch_number):
+            continue
 
-        for inv in inventory_rows:
-            inv_batch = normalize_optional_field(inv.get("BatchNumber"))
-            inv_attr1 = normalize_optional_field(inv.get("InventoryAttribute1"))
+        if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
+            continue
 
-            if batch_number is not None and str(inv_batch) != str(batch_number):
-                continue
+        if float(inv.get("OnHand", 0)) >= qty:
+            matches.append(inv)
 
-            if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
-                continue
-
-            if float(inv.get("OnHand", 0)) >= qty:
-                return inv
-
-    return None
+    return matches
 
 # -------------------------------
 # CREATE INVENTORY
@@ -430,7 +429,7 @@ def process_order(input_data, log, zone_map):
             log(f"❌ Missing Pick Zone for Order Line: {line_id}")
             continue
 
-        log(f"\n📍 Resolving locations for Order Line {line_id} using Pick Zone: {zone}")
+        log(f"\n📍 Resolving target locations for Order Line {line_id} using Pick Zone: {zone}")
         locations = get_locations_from_zone(zone, log)
 
         if not locations:
@@ -438,6 +437,7 @@ def process_order(input_data, log, zone_map):
             continue
 
         location_id = locations[0][1]
+        target_location_ids = {loc_id for _, loc_id in locations if loc_id}
         log(f"📍 Using LocationId for create flow: {location_id}")
 
         log(f"\n===== Processing {line.get('ItemId')} =====")
@@ -459,12 +459,19 @@ def process_order(input_data, log, zone_map):
             create_inventory(line, location_id, track_batch, log)
 
         else:
-            # -------------------------------
-            # EXISTING FLOW (UNCHANGED)
-            # -------------------------------
-            inventory = search_inventory(line, locations, track_batch, log)
+            inventories = search_inventory(line, track_batch, log)
 
-            if inventory:
+            if inventories:
+                inventory = None
+
+                for candidate in inventories:
+                    if candidate.get("LocationId") in target_location_ids:
+                        inventory = candidate
+                        break
+
+                if inventory is None:
+                    inventory = inventories[0]
+
                 log("\n✅ INVENTORY FOUND DETAILS")
                 log("-" * 40)
 
@@ -487,6 +494,11 @@ def process_order(input_data, log, zone_map):
                 log(f"ItemAttribute2: {item_attr2 if item_attr2 is not None else 'N/A'}")
 
                 log("-" * 40)
+
+                if location not in target_location_ids:
+                    log(f"⚠️ Inventory exists but not in target Pick Zone: {zone}")
+                    log("🆕 Creating inventory in the user-selected Pick Zone")
+                    create_inventory(line, location_id, track_batch, log)
 
             else:
                 log("❌ Not found → Creating")
