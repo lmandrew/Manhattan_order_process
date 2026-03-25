@@ -284,7 +284,34 @@ def create_inventory(line, location_id, track_batch, log):
     if track_batch:
         payload["Inventory"][0]["BatchNumber"] = line.get("BatchNumber")
 
+    log("\n📤 CREATE INVENTORY REQUEST")
+    log("-" * 40)
+    log(f"ItemId        : {line.get('ItemId')}")
+    log(f"LPN ID        : {lpn}")
+    log(f"LocationId    : {location_id}")
+    log(f"PickZone      : {pick_zone if pick_zone else 'N/A'}")
+    log(f"OnHand Qty    : {line.get('OrderedQuantity')}")
+    log(f"BatchNumber   : {line.get('BatchNumber') if track_batch else 'N/A'}")
+    log("-" * 40)
+
     response = make_request("POST", CREATE_INVENTORY_URL, json=payload)
+
+    if response.status_code not in [200, 201]:
+        log("\n❌ INVENTORY CREATE FAILED")
+        log("-" * 40)
+        log(f"ItemId        : {line.get('ItemId')}")
+        log(f"LPN ID        : {lpn}")
+        log(f"LocationId    : {location_id}")
+        log(f"PickZone      : {pick_zone if pick_zone else 'N/A'}")
+        log(f"OnHand Qty    : {line.get('OrderedQuantity')}")
+        log(f"BatchNumber   : {line.get('BatchNumber') if track_batch else 'N/A'}")
+        log(f"Status Code   : {response.status_code}")
+        try:
+            log(json.dumps(response.json(), indent=2))
+        except:
+            log(response.text)
+        log("-" * 40)
+        return None
 
     log("\n🆕 INVENTORY CREATED DETAILS")
     log("-" * 40)
@@ -295,7 +322,16 @@ def create_inventory(line, location_id, track_batch, log):
     log(f"OnHand Qty    : {line.get('OrderedQuantity')}")
     log(f"BatchNumber   : {line.get('BatchNumber') if track_batch else 'N/A'}")
     log(f"Status Code   : {response.status_code}")
+    try:
+        body = response.json()
+        if body:
+            log(json.dumps(body, indent=2))
+    except:
+        if response.text:
+            log(response.text)
     log("-" * 40)
+
+    return safe_json(response)
 
 # -------------------------------
 # POST DO
