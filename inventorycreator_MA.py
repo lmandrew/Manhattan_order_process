@@ -13,7 +13,8 @@ ITEM_API_URL = f"{APP_HOST}/item-master/api/item-master/item/itemId"
 ITEM_FACILITY_URL = f"{APP_HOST}/item-master/api/item-master/itemFacility/itemId"
 DC_ORDER_URL = f"{APP_HOST}/dcorder/api/dcorder/originalOrder/save"
 BATCH_MASTER_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster"
-BATCH_SEARCH_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster/search"  # New batch search API
+BATCH_SEARCH_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster/search"
+ITEM_DETAIL_URL = f"{APP_HOST}/item-master/api/item-master/item/itemId"  # for item details
 
 LOC = "EDC-DEV"
 ORG = "EDC-DEV"
@@ -84,6 +85,18 @@ def get_location_from_zone(zone, log):
     location_id = results[0].get("LocationId")
     log(f"📍 Using Location: {location_id} (Zone: {zone})")
     return location_id
+
+# -------------------------------
+# GET ITEM DETAILS AND TrackBatchNumber
+# -------------------------------
+def get_item_and_batch_info(item_id, log):
+    try:
+        response = requests.get(f"{ITEM_DETAIL_URL}/{item_id}", headers=HEADERS)
+        data = safe_json(response)
+    except Exception as e:
+        log(f"❌ Item details API error: {e}")
+        return {}
+    return data.get("data", {})
 
 # -------------------------------
 # PACKZONE FROM ITEM
@@ -219,7 +232,7 @@ def check_batch_exists(batch_number, log):
 # CREATE BATCH MASTER
 # -------------------------------
 def create_batch_master(item_id, batch_number, log):
-    # Example received date, you might want to customize or pass as parameter
+    # Example received date, customize as needed
     received_date = "2022-05-20"
     payload = {
         "BatchNumberId": batch_number,
@@ -273,21 +286,27 @@ def process_order(do_json, log, access_token, zone):
         get_packzone_from_item(line.get("ItemId"), log)
         if validate_item_batch(line, log) == "STOP":
             continue
+        item_id = line.get("ItemId")
+        # Get item details to check TrackBatchNumber
+        item_info = get_item_and_batch_info(item_id, log)
+        track_batch = item_info.get("TrackBatchNumber")
+        if isinstance(track_batch, str):
+            track_batch = track_batch.lower() == "true"
         # Check if batch exists in system
         batch_number = line.get("BatchNumber")
         if batch_number:
             exists = check_batch_exists(batch_number, log)
-            if not exists:
-                # Create batch if it does not exist
-                create_batch_master(line.get("ItemId"), batch_number, log)
+            if not exists and track_batch:
+                create_batch_master(item_id, batch_number, log)
         else:
             # Generate a new batch number
             batch_number = f"BATCH{generate_id(6)}"
             line["BatchNumber"] = batch_number
-            # Check if batch exists before creating
-            exists = check_batch_exists(batch_number, log)
-            if not exists:
-                create_batch_master(line.get("ItemId"), batch_number, log)
+            # Only create batch if TrackBatchNumber is True
+            if isinstance(track_batch, bool) and track_batch:
+                exists = check_batch_exists(batch_number, log)
+                if not exists:
+                    create_batch_master(item_id, batch_number, log)
 
         # Search inventory
         inventory = search_inventory(line, location_id, log)
