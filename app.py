@@ -38,13 +38,14 @@ def load_do_json(raw_text):
             cleaned_lines.append(line)
 
     cleaned = "\n".join(cleaned_lines)
-    cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
+
+    # Remove trailing comma cleaning (comment out if you don't want to alter JSON)
+    # cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
 
     try:
         return json.loads(cleaned)
     except:
         return None
-
 
 # -------------------------------
 # INPUT SECTION
