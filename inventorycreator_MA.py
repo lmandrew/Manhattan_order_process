@@ -243,11 +243,14 @@ def handle_batch_logic(line, log):
 # -------------------------------
 # SEARCH INVENTORY
 # -------------------------------
-def search_inventory(line, location_id):
+def search_inventory(line, location_id, log=None):
     item = line.get("ItemId")
     qty = float(line.get("OrderedQuantity", 0))
 
     query = f"ItemId={item} and LocationId={location_id}"
+
+    if log:
+        log(f"🔎 Searching inventory for ItemId={item} at LocationId={location_id}")
 
     response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query, "Size": 100})
     data = safe_json(response)
