@@ -5,7 +5,7 @@ import json
 
 # -----------------------------------
 # CONFIG
-# ----------------------------------
+# --------------------------------------
 APP_HOST = "https://abbls2.sce.manh.com"
 SEARCH_INVENTORY_URL = f"{APP_HOST}/dcinventory/api/dcinventory/inventory/search"
 SEARCH_LOCATION_URL = f"{APP_HOST}/dcinventory/api/dcinventory/location/search"
