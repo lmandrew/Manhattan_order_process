@@ -48,6 +48,11 @@ if do_preview and do_preview.get("OriginalOrderLine"):
 zone = st.text_input(f"📍 Enter Pick Zone for Item: {item_label}")
 
 # -------------------------------
+# RUN
+# -------------------------------
+run_process = st.button("🚀 Run Process")
+
+# -------------------------------
 # LOG AREA
 # -------------------------------
 st.subheader("📋 Logs")
@@ -59,10 +64,7 @@ def log(msg):
     logs.append(msg)
     log_container.markdown("```\n" + "\n".join(logs) + "\n```")
 
-# -------------------------------
-# RUN
-# -------------------------------
-if st.button("🚀 Run Process"):
+if run_process:
 
     logs.clear()
 
