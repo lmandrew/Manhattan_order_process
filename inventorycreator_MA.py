@@ -3,6 +3,7 @@ import random
 import string
 import json
 import time
+import re
 
 # -----------------------------------
 # CONFIG
@@ -13,19 +14,14 @@ SEARCH_INVENTORY_URL = f"{APP_HOST}/dcinventory/api/dcinventory/inventory/search
 SEARCH_LOCATION_URL = f"{APP_HOST}/dcinventory/api/dcinventory/location/search"
 CREATE_INVENTORY_URL = f"{APP_HOST}/dcinventory/api/dcinventory/ilpn/createIlpnAndInventory"
 ITEM_API_URL = f"{APP_HOST}/item-master/api/item-master/item/itemId"
-ITEM_FACILITY_URL = f"{APP_HOST}/item-master/api/item-master/itemFacility/itemId"
 DC_ORDER_URL = f"{APP_HOST}/dcorder/api/dcorder/originalOrder/save"
 BATCH_MASTER_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster"
 BATCH_SEARCH_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster/search"
 
-# -------------------------------
-# AUTH CONFIG
-# -------------------------------
 TOKEN_URL = "https://abbls2-auth.sce.manh.com/auth/realms/maactive/protocol/openid-connect/token"
 
 USERNAME = "andrew.l@abbott.com"
 PASSWORD = "1526John@"
-
 BASIC_AUTH = "Basic b21uaWNvbXBvbmVudC4xLjAuMDpiNHM4cmdUeWc1NVhZTnVu"
 
 LOC = "EDC-DEV"
@@ -34,17 +30,9 @@ ORG = "EDC-DEV"
 # -------------------------------
 # TOKEN CACHE
 # -------------------------------
-token_cache = {
-    "access_token": None,
-    "created_time": 0
-}
+token_cache = {"access_token": None, "created_time": 0}
 
-# -------------------------------
-# GET ACCESS TOKEN (AUTO)
-# -------------------------------
 def get_access_token():
-
-    # reuse token for ~50 minutes
     if token_cache["access_token"] and (time.time() - token_cache["created_time"] < 3000):
         return token_cache["access_token"]
 
@@ -64,18 +52,13 @@ def get_access_token():
     if response.status_code != 200:
         raise Exception(f"❌ Token fetch failed: {response.text}")
 
-    data = response.json()
-
-    token_cache["access_token"] = data.get("access_token")
+    token_cache["access_token"] = response.json().get("access_token")
     token_cache["created_time"] = time.time()
 
-    print("✅ New Access Token Generated")
+    print("✅ Token refreshed")
 
     return token_cache["access_token"]
 
-# -------------------------------
-# HEADERS BUILDER
-# -------------------------------
 def get_headers():
     return {
         "Authorization": f"Bearer {get_access_token()}",
@@ -85,28 +68,36 @@ def get_headers():
         "selectedOrganization": ORG
     }
 
-# -------------------------------
-# SAFE REQUEST (AUTO RETRY)
-# -------------------------------
 def make_request(method, url, **kwargs):
-
-    headers = get_headers()
-    kwargs["headers"] = headers
-
+    kwargs["headers"] = get_headers()
     response = requests.request(method, url, **kwargs)
 
-    # auto retry if token expired
     if response.status_code == 401:
-        print("🔄 Token expired → refreshing...")
-
-        token_cache["access_token"] = None  # force refresh
-
-        headers = get_headers()
-        kwargs["headers"] = headers
-
+        token_cache["access_token"] = None
+        kwargs["headers"] = get_headers()
         response = requests.request(method, url, **kwargs)
 
     return response
+
+# -------------------------------
+# JSON CLEANER
+# -------------------------------
+def clean_json(raw_text):
+    lines = raw_text.splitlines()
+    cleaned_lines = []
+
+    for line in lines:
+        if line.strip().startswith("//"):
+            continue
+        if "//" in line:
+            line = line.split("//")[0]
+        if line.strip():
+            cleaned_lines.append(line)
+
+    cleaned = "\n".join(cleaned_lines)
+    cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
+
+    return json.loads(cleaned)
 
 # -------------------------------
 # UTIL
@@ -117,14 +108,16 @@ def safe_json(response):
     except:
         return {}
 
-def generate_id(length=16):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+def generate_batch():
+    return f"BATCH{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
+
+def generate_lpn():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=12))
 
 # -------------------------------
-# LOCATION FROM ZONE
+# LOCATION
 # -------------------------------
 def get_location_from_zone(zone, log):
-
     payload = {
         "Query": f"PickAllocationZoneId={zone}",
         "Size": 50,
@@ -140,52 +133,47 @@ def get_location_from_zone(zone, log):
         log(f"❌ No location found for zone: {zone}")
         return None
 
-    location_id = results[0].get("LocationId")
-
-    log(f"📍 Using Location: {location_id} (Zone: {zone})")
-
-    return location_id
+    loc = results[0].get("LocationId")
+    log(f"📍 Using Location: {loc}")
+    return loc
 
 # -------------------------------
-# ITEM INFO
+# CHECK BATCH EXISTS
 # -------------------------------
-def get_item_info(item_id):
-    response = make_request("GET", f"{ITEM_API_URL}/{item_id}")
-    return safe_json(response).get("data", {})
-
-# -------------------------------
-# PACKZONE
-# -------------------------------
-def get_packzone_from_item(item_id, log):
-
-    log(f"\n📦 Fetching PackZone for Item: {item_id}")
-
-    response = make_request("GET", f"{ITEM_FACILITY_URL}/{item_id}")
-    data = safe_json(response).get("data", {})
-
-    packzone = data.get("Extended", {}).get("PackZone")
-
-    if not packzone:
-        packzone = (
-            data.get("EntityLabels", {})
-            .get("AttributeLabels", {})
-            .get("Extended", {})
-            .get("PackZone")
-        )
-
-    log(f"✅ PackZone: {packzone}" if packzone else "⚠️ PackZone not found")
-
-    return packzone
+def check_batch_exists(batch):
+    payload = {"Query": f"BatchNumberId={batch}"}
+    response = make_request("POST", BATCH_SEARCH_URL, json=payload)
+    data = safe_json(response)
+    return len(data.get("data", [])) > 0
 
 # -------------------------------
-# VALIDATION
+# CREATE BATCH MASTER
 # -------------------------------
-def validate_item_batch(line, log):
+def create_batch_master(item_id, batch, log):
+    payload = {
+        "BatchNumberId": batch,
+        "ItemId": item_id,
+        "ReceivedDate": "2022-01-01",
+        "Status": 1000
+    }
+
+    response = make_request("POST", BATCH_MASTER_URL, json=payload)
+
+    if response.status_code in [200, 201]:
+        log(f"✅ Batch Master Created: {batch}")
+    else:
+        log(f"❌ Batch Master Failed: {response.text}")
+
+# -------------------------------
+# HANDLE BATCH LOGIC
+# -------------------------------
+def handle_batch_logic(line, log):
 
     item_id = line.get("ItemId")
     batch = line.get("BatchNumber")
 
-    data = get_item_info(item_id)
+    response = make_request("GET", f"{ITEM_API_URL}/{item_id}")
+    data = safe_json(response).get("data")
 
     if not data:
         log("❌ Invalid item")
@@ -196,22 +184,35 @@ def validate_item_batch(line, log):
     if isinstance(track_batch, str):
         track_batch = track_batch.lower() == "true"
 
-    if not track_batch and batch:
-        log("❌ Batch provided but item not batch tracked")
-        return "STOP", False
+    log(f"📦 Item {item_id} → Batch Tracked: {'YES' if track_batch else 'NO'}")
 
-    if track_batch and not batch:
-        batch = f"BATCH{generate_id(6)}"
-        line["BatchNumber"] = batch
-        log(f"⚠️ Auto batch created: {batch}")
+    # -------------------------------
+    # CASE 1: Batch tracked
+    # -------------------------------
+    if track_batch:
+        if not batch:
+            batch = generate_batch()
+            line["BatchNumber"] = batch
+            log(f"⚠️ Generated Batch: {batch}")
+
+        # create batch master if not exists
+        if not check_batch_exists(batch):
+            create_batch_master(item_id, batch, log)
+
+    # -------------------------------
+    # CASE 2: NOT batch tracked
+    # -------------------------------
+    else:
+        if batch:
+            log("⚠️ Removing batch (not batch tracked)")
+            line.pop("BatchNumber", None)
 
     return None, track_batch
 
 # -------------------------------
 # SEARCH INVENTORY
 # -------------------------------
-def search_inventory(line, location_id, log):
-
+def search_inventory(line, location_id):
     item = line.get("ItemId")
     qty = float(line.get("OrderedQuantity", 0))
 
@@ -229,42 +230,35 @@ def search_inventory(line, location_id, log):
 # -------------------------------
 # CREATE INVENTORY
 # -------------------------------
-def create_inventory(line, location_id, log, track_batch):
+def create_inventory(line, location_id, track_batch, log):
 
-    lpn = generate_id()
+    lpn = generate_lpn()
 
     payload = {
         "IlpnId": lpn,
         "IlpnTypeId": "ILPN",
         "Status": "3000",
-        "CurrentLocationTypeId": "Storage",
         "CurrentLocationId": location_id,
         "Inventory": [{
             "InventoryContainerId": lpn,
-            "InventoryContainerTypeId": "ILPN",
             "ItemId": line.get("ItemId"),
-            "OnHand": line.get("OrderedQuantity"),
+            "OnHand": line.get("OrderedQuantity")
         }]
     }
 
     if track_batch:
         payload["Inventory"][0]["BatchNumber"] = line.get("BatchNumber")
 
-    response = make_request("POST", CREATE_INVENTORY_URL, json=payload)
+    make_request("POST", CREATE_INVENTORY_URL, json=payload)
 
-    log("\n🆕 CREATED INVENTORY")
-    log(f"ItemId : {line.get('ItemId')}")
-    log(f"ILPN   : {lpn}")
-    log(f"Loc    : {location_id}")
-    log(f"Qty    : {line.get('OrderedQuantity')}")
-    log(f"Status : {response.status_code}")
+    log(f"🆕 Inventory Created → LPN: {lpn}")
 
 # -------------------------------
 # POST DO
 # -------------------------------
 def post_do(do_json, log):
 
-    log("\n🚀 Posting DO...")
+    log("\n🚀 Posting FINAL DO JSON...")
 
     response = make_request("POST", DC_ORDER_URL, json=do_json)
 
@@ -278,7 +272,9 @@ def post_do(do_json, log):
 # -------------------------------
 # MAIN PIPELINE
 # -------------------------------
-def process_order(do_json, log, zone):
+def process_order(raw_do_text, log, zone):
+
+    do_json = clean_json(raw_do_text)
 
     location_id = get_location_from_zone(zone, log)
 
@@ -287,23 +283,19 @@ def process_order(do_json, log, zone):
 
     for line in do_json.get("OriginalOrderLine", []):
 
-        log(f"\n===== {line.get('ItemId')} =====")
+        log(f"\n===== Processing {line.get('ItemId')} =====")
 
-        get_packzone_from_item(line.get("ItemId"), log)
-
-        stop, track_batch = validate_item_batch(line, log)
+        stop, track_batch = handle_batch_logic(line, log)
 
         if stop == "STOP":
             continue
 
-        inv = search_inventory(line, location_id, log)
+        inv = search_inventory(line, location_id)
 
         if inv:
-            log("\n✅ INVENTORY FOUND")
-            log(f"LPN : {inv.get('InventoryContainerId')}")
-            log(f"Loc : {inv.get('LocationId')}")
+            log("✅ Inventory exists")
         else:
-            create_inventory(line, location_id, log, track_batch)
+            create_inventory(line, location_id, track_batch, log)
 
     log("\n📦 FINAL STEP")
     post_do(do_json, log)
