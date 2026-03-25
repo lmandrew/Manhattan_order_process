@@ -267,6 +267,7 @@ def search_inventory(line, location_id, log=None):
 def create_inventory(line, location_id, track_batch, log):
 
     lpn = generate_lpn()
+    pick_zone = get_pick_zone(location_id)
 
     payload = {
         "IlpnId": lpn,
@@ -283,9 +284,18 @@ def create_inventory(line, location_id, track_batch, log):
     if track_batch:
         payload["Inventory"][0]["BatchNumber"] = line.get("BatchNumber")
 
-    make_request("POST", CREATE_INVENTORY_URL, json=payload)
+    response = make_request("POST", CREATE_INVENTORY_URL, json=payload)
 
-    log(f"🆕 Inventory Created → LPN: {lpn}")
+    log("\n🆕 INVENTORY CREATED DETAILS")
+    log("-" * 40)
+    log(f"ItemId        : {line.get('ItemId')}")
+    log(f"LPN ID        : {lpn}")
+    log(f"LocationId    : {location_id}")
+    log(f"PickZone      : {pick_zone if pick_zone else 'N/A'}")
+    log(f"OnHand Qty    : {line.get('OrderedQuantity')}")
+    log(f"BatchNumber   : {line.get('BatchNumber') if track_batch else 'N/A'}")
+    log(f"Status Code   : {response.status_code}")
+    log("-" * 40)
 
 # -------------------------------
 # POST DO
