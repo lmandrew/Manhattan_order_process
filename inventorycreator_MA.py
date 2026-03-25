@@ -108,6 +108,13 @@ def safe_json(response):
     except:
         return {}
 
+def normalize_optional_field(value):
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
 def generate_batch():
     return f"BATCH{''.join(random.choices(string.ascii_uppercase + string.digits, k=6))}"
 
@@ -246,16 +253,16 @@ def handle_batch_logic(line, log):
 def search_inventory(line, location_id, log=None):
     item = line.get("ItemId")
     qty = float(line.get("OrderedQuantity", 0))
-    item_attr1 = line.get("ItemAttribute1")
-    item_attr2 = line.get("ItemAttribute2")
+    item_attr1 = normalize_optional_field(line.get("ItemAttribute1"))
+    item_attr2 = normalize_optional_field(line.get("ItemAttribute2"))
 
     query = f"ItemId={item} and LocationId={location_id}"
 
     if item_attr1 is not None:
-        query += f" and ItemAttribute1={item_attr1}"
+        query += f" and InventoryAttribute1={item_attr1}"
 
     if item_attr2 is not None:
-        query += f" and ItemAttribute2={item_attr2}"
+        query += f" and InventoryAttribute2={item_attr2}"
 
     if log:
         log(f"🔎 Searching inventory for ItemId={item} at LocationId={location_id}")
@@ -264,10 +271,11 @@ def search_inventory(line, location_id, log=None):
 
     response = make_request("POST", SEARCH_INVENTORY_URL, json={"Query": query, "Size": 100})
     data = safe_json(response)
+    inventory_rows = data.get("data") or []
 
-    for inv in data.get("data", []):
-        inv_attr1 = inv.get("ItemAttribute1")
-        inv_attr2 = inv.get("ItemAttribute2")
+    for inv in inventory_rows:
+        inv_attr1 = normalize_optional_field(inv.get("InventoryAttribute1"))
+        inv_attr2 = normalize_optional_field(inv.get("InventoryAttribute2"))
 
         if item_attr1 is not None and str(inv_attr1) != str(item_attr1):
             continue
@@ -287,8 +295,8 @@ def create_inventory(line, location_id, track_batch, log):
 
     lpn = generate_lpn()
     pick_zone = get_pick_zone(location_id)
-    item_attr1 = line.get("ItemAttribute1")
-    item_attr2 = line.get("ItemAttribute2")
+    item_attr1 = normalize_optional_field(line.get("ItemAttribute1"))
+    item_attr2 = normalize_optional_field(line.get("ItemAttribute2"))
 
     payload = {
         "IlpnId": lpn,
@@ -307,10 +315,10 @@ def create_inventory(line, location_id, track_batch, log):
         payload["Inventory"][0]["BatchNumber"] = line.get("BatchNumber")
 
     if item_attr1 is not None:
-        payload["Inventory"][0]["ItemAttribute1"] = item_attr1
+        payload["Inventory"][0]["InventoryAttribute1"] = item_attr1
 
     if item_attr2 is not None:
-        payload["Inventory"][0]["ItemAttribute2"] = item_attr2
+        payload["Inventory"][0]["InventoryAttribute2"] = item_attr2
 
     log("\n📤 CREATE INVENTORY REQUEST")
     log("-" * 40)
@@ -441,8 +449,8 @@ def process_order(input_data, log, zone):
                 location = inventory.get("LocationId")
                 qty = inventory.get("OnHand")
                 batch = inventory.get("BatchNumber")
-                item_attr1 = inventory.get("ItemAttribute1")
-                item_attr2 = inventory.get("ItemAttribute2")
+                item_attr1 = normalize_optional_field(inventory.get("InventoryAttribute1"))
+                item_attr2 = normalize_optional_field(inventory.get("InventoryAttribute2"))
 
                 pick_zone = get_pick_zone(location)
 
