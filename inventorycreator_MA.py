@@ -346,10 +346,6 @@ def create_inventory(line, location_id, track_batch, log):
         log(f"ItemAttribute1: {item_attr1 if item_attr1 is not None else 'N/A'}")
         log(f"ItemAttribute2: {item_attr2 if item_attr2 is not None else 'N/A'}")
         log(f"Status Code   : {response.status_code}")
-        try:
-            log(json.dumps(response.json(), indent=2))
-        except:
-            log(response.text)
         log("-" * 40)
         return None
 
@@ -364,13 +360,6 @@ def create_inventory(line, location_id, track_batch, log):
     log(f"ItemAttribute1: {item_attr1 if item_attr1 is not None else 'N/A'}")
     log(f"ItemAttribute2: {item_attr2 if item_attr2 is not None else 'N/A'}")
     log(f"Status Code   : {response.status_code}")
-    try:
-        body = response.json()
-        if body:
-            log(json.dumps(body, indent=2))
-    except:
-        if response.text:
-            log(response.text)
     log("-" * 40)
 
     return safe_json(response)
@@ -384,17 +373,15 @@ def post_do(do_json, log):
 
     response = make_request("POST", DC_ORDER_URL, json=do_json)
 
-    log(f"Status: {response.status_code}")
-
-    try:
-        log(json.dumps(response.json(), indent=2))
-    except:
-        log(response.text)
+    if response.status_code in [200, 201]:
+        log(f"✅ DO posted successfully. Status: {response.status_code}")
+    else:
+        log(f"❌ DO post failed. Status: {response.status_code}")
 
 # -------------------------------
 # MAIN PIPELINE
 # -------------------------------
-def process_order(input_data, log, zone):
+def process_order(input_data, log, zone_map):
 
     # -------------------------------
     # HANDLE BOTH STRING & DICT
@@ -407,15 +394,20 @@ def process_order(input_data, log, zone):
         log("❌ Invalid input type")
         return
 
-    # -------------------------------
-    # NORMAL FLOW
-    # -------------------------------
-    location_id = get_location_from_zone(zone, log)
+    for index, line in enumerate(do_json.get("OriginalOrderLine", []), start=1):
+        line_id = str(line.get("OriginalOrderLineId", index))
+        zone = zone_map.get(line_id)
 
-    if not location_id:
-        return
+        if not zone:
+            log(f"❌ Missing Pick Zone for Order Line: {line_id}")
+            continue
 
-    for line in do_json.get("OriginalOrderLine", []):
+        log(f"\n📍 Resolving location for Order Line {line_id} using Pick Zone: {zone}")
+        location_id = get_location_from_zone(zone, log)
+
+        if not location_id:
+            log(f"❌ Skipping Order Line {line_id} because no location was found")
+            continue
 
         log(f"\n===== Processing {line.get('ItemId')} =====")
 

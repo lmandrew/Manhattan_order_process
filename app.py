@@ -31,6 +31,11 @@ def load_do_json(raw_text):
     except:
         return None
 
+def get_order_lines(do_json):
+    if not do_json:
+        return []
+    return do_json.get("OriginalOrderLine") or []
+
 # -------------------------------
 # INPUT
 # -------------------------------
@@ -39,13 +44,20 @@ st.subheader("📥 Input")
 raw_json = st.text_area("📦 Paste DO JSON", height=350)
 
 do_preview = load_do_json(raw_json)
+order_lines = get_order_lines(do_preview)
+line_zones = {}
 
-item_label = "Item"
-
-if do_preview and do_preview.get("OriginalOrderLine"):
-    item_label = do_preview["OriginalOrderLine"][0].get("ItemId", "Item")
-
-zone = st.text_input(f"📍 Enter Pick Zone for Item: {item_label}")
+if order_lines:
+    st.subheader("📍 Pick Allocation Zones")
+    for index, line in enumerate(order_lines, start=1):
+        line_id = str(line.get("OriginalOrderLineId", index))
+        item_id = line.get("ItemId", "Item")
+        qty = line.get("OrderedQuantity", "N/A")
+        label = f"Line {line_id} | Item {item_id} | Qty {qty}"
+        line_zones[line_id] = st.text_input(
+            label,
+            key=f"pick_zone_{line_id}"
+        )
 
 # -------------------------------
 # RUN
@@ -74,15 +86,31 @@ if run_process:
         log("❌ Invalid JSON")
         st.stop()
 
-    if not zone:
-        log("❌ Enter Pick Zone")
+    if not order_lines:
+        log("❌ No order lines found in DO JSON")
+        st.stop()
+
+    missing_line_ids = []
+    zone_map = {}
+
+    for index, line in enumerate(order_lines, start=1):
+        line_id = str(line.get("OriginalOrderLineId", index))
+        zone_value = (line_zones.get(line_id) or "").strip()
+
+        if not zone_value:
+            missing_line_ids.append(line_id)
+        else:
+            zone_map[line_id] = zone_value
+
+    if missing_line_ids:
+        log(f"❌ Enter Pick Zone for Order Line(s): {', '.join(missing_line_ids)}")
         st.stop()
 
     st.subheader("🧹 Cleaned JSON")
     st.json(do_json)
 
     try:
-        process_order(do_json, log, zone)
+        process_order(do_json, log, zone_map)
         log("\n✅ Done")
     except Exception as e:
         log(f"❌ Error: {str(e)}")
