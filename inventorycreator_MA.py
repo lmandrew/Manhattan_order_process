@@ -21,7 +21,7 @@ BATCH_SEARCH_URL = f"{APP_HOST}/dcinventory/api/dcinventory/batchMaster/search"
 TOKEN_URL = "https://abbls2-auth.sce.manh.com/auth/realms/maactive/protocol/openid-connect/token"
 
 USERNAME = "andrew.l@abbott.com"
-PASSWORD = "1526John@"
+PASSWORD = "1526Jesus!"
 BASIC_AUTH = "Basic b21uaWNvbXBvbmVudC4xLjAuMDpiNHM4cmdUeWc1NVhZTnVu"
 
 LOC = "EDC-DEV"
